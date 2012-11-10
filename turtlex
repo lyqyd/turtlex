@@ -1,0 +1,1307 @@
+--[[== turtlex api ====================
+high-level alternative to turtle api,
+adds position and inventory tracking
+with persistance through unloading or
+reboot.
+
+code by GopherAtl
+Do whatever you want with it, just 
+give me credit, and if you redistribute
+please link back to the turtlex thread 
+on the computercraft forums.
+=====================================]]
+local native=turtle
+
+--[[ as-yet unimplemented
+function attack()
+function attackUp()
+function attackDown()
+--]]
+
+--[[   internal variables ]]--
+local dirMap={north=0, east=1, south=2, west=3}
+local dirVMap={}
+dirVMap[0]=   vector.new( 0, 0,-1)
+dirVMap[1]=   vector.new( 1, 0, 0)
+dirVMap[2]=   vector.new( 0, 0, 1)
+dirVMap[3]=   vector.new(-1, 0, 0)
+
+local position=vector.new(0,0,0)
+local direction=0
+local selectedSlot = 1
+local myInventory=nil
+local posStack={}
+local lastReportedPos=vector.new(0,0,0)
+local monitorId=nil
+
+--[[=====  internal methods  ======]]--
+
+local function reportPos(msg)
+  if monitorId then
+    msg = msg or "moved" 
+    rednet.send(monitorId,"update "..position.x.." "..position.y.." "..position.z.." "..msg)  
+    lastReportedPos={x=position.x,y=position.y,z=position.z}
+  end
+end  
+
+local function reportPosIfChanged()
+  if monitorId then
+    local d=math.abs(position.x-lastReportedPos.x) +
+            math.abs(position.y-lastReportedPos.y) +
+            math.abs(position.z-lastReportedPos.z)
+    if d>8 then 
+      reportPos("moved")
+    end
+  end    
+end        
+
+local function loadHelp(filename)
+  if fs.exists(filename) then
+    local file=fs.open(filename,"r")
+    local text=file.readAll()
+    file.close()
+    return text
+  end
+end
+  
+local function loadAction()
+  local text=loadHelp(".action")
+  return text
+end
+
+local function loadMonitor()
+  local text=loadHelp(".monitor")
+  if text then
+    monitorId=tonumber(text)
+  end
+end
+  
+function gpsUpdate()
+  local succ,x,y,z=pcall(gps.locate,1)
+  if succ and x then 
+    position=vector.new(x,y,z)
+    if native.forward() then
+      local nx,ny,nz=gps.locate(1)
+      native.back()
+      if nx<x then
+        direction=3
+      elseif nx>x then
+        direction=1
+      elseif nz<z then
+        direction=0
+      else
+        direction=2
+      end
+    elseif native.back() then
+      local nx,ny,nz=gps.locate(1)
+      native.forward()
+      if nx<x then
+        direction=1
+      elseif nx>x then
+        direction=3
+      elseif nz<z then
+        direction=2
+      else
+        direction=0
+      end
+    else
+      native.turnLeft()
+      if native.forward() then
+        local nx,ny,nz=gps.locate(1)
+        native.back()        
+        if nx<x then
+          direction=0
+        elseif nx>x then
+          direction=2
+        elseif nz<z then
+          direction=1
+        else
+          direction=3
+        end
+      elseif native.back() then
+        local nx,ny,nz=gps.locate(1)
+        native.forward()        
+        if nx<x then
+          direction=2
+        elseif nx>x then
+          direction=0
+        elseif nz<z then
+          direction=3
+        else
+          direction=1
+        end
+      end
+      native.turnRight()
+    end
+  end
+end
+
+local function loadPosition()  
+  local text=loadHelp(".position")
+  if text then
+    local x, y, z, d=string.match(text,"^(-?%d+)%s+(-?%d+)%s+(-?%d+)%s+(%d+)$")
+    position=vector.new(tonumber(x),tonumber(y),tonumber(z))
+    direction=tonumber(d)
+  end
+end
+
+local function loadSelected()
+  local text=loadHelp(".selected")
+  if text then
+    selectedSlot=tonumber(text)
+    native.select(selectedSlot)
+  else
+    --make sure they agree at least
+    selectedSlot=1
+    native.select(1)
+  end
+end
+
+local function loadPosStack()  
+  local text=loadHelp(".posStack")
+  if text then
+    posStack=textutils.unserialize(text)
+  else
+    posStack={}
+  end
+end
+
+function loadState()
+  loadMonitor()
+  loadPosition()
+  loadSelected()
+  ---[[
+  loadPosStack()
+  --]]
+  myInventory=inventory.load(".inventory")
+  if myInventory==nil then
+    myInventory=inventory.create(16,true)
+  else
+    myInventory.isMe=true
+  end
+  local action=loadAction()
+  if action then
+    --fix...??
+    local tokens={}
+    string.gsub(action,"(%S+)",function(t) tokens[#tokens+1]=(tonumber(t) or t) return end)
+    if tokens[1]=="move" then
+      --remaining parameters are the position it was moving to.
+      --replace stored position with this.
+      position=vector.new(tokens[2],tokens[3],tokens[4])
+    elseif tokens[1]=="turn" then
+      direction=tokens[2]
+    end
+    fs.delete(".action")
+    --regardless, delete it now
+    --saveHelp(".action") --nil or "" as test deletes
+  end
+  myInventory.autoSave=true
+  
+end
+
+local function saveHelp(filename, text)
+  if text and text~="" then
+    file=fs.open(filename,"w")
+    file.write(text)
+    file.close()
+  else
+    fs.delete(filename)
+  end
+end
+ 
+local function saveAction(action)
+  saveHelp(".action",action)  
+end
+
+local function saveMonitor()
+  if monitorId then
+    saveHelp(".monitor",monitorId)
+  end
+end
+      
+local function savePosition()
+  saveHelp(".position",position.x.." "..position.y.." "..position.z.." "..direction)
+  reportPosIfChanged()  
+end
+
+local function saveSelected()
+  saveHelp(".selectedSlot",selectedSlot)
+end
+
+local function savePosStack()
+  saveHelp(".posStack",textutils.serialize(posStack))  
+end
+ 
+function saveState()
+  savePosition()
+  saveSelected()
+  savePosStack()
+  inventory.save(myInventory,".inventory")
+end
+
+
+--[[===== public API functions ====]]--
+
+function setMonitorId(id)
+  monitorId=id
+  saveMonitor()  
+end
+
+function getMonitorId()
+  return monitorId
+end
+      
+--[[ 
+Convert the parameter into a turtlex 
+direction value (0=north, 1=east, 
+2=south, 3=north). Accepts numbers, 
+which are range-checked, or strings,
+which are matched to "north," "south,"
+"east," or "west," ignoring case and
+allowing for abitrary abbreviations
+(ex, "n", "No", "noR", or "NORTH" all
+match "north" and return as "0")
+returns nil on invalid values
+--]]
+function todirection(val)
+   if type(val) == "number" then
+     return val>=0 and val<=4 and val or nil
+   elseif type(val)=="string" then
+     for i,dir in pairs({"north","east","south","west"}) do
+       if #val<=#dir and string.sub(dir,1,#val) == string.lower(val) then
+         return i-1
+       end
+     end       
+   end
+end
+
+--[[
+Converts a turtlex direction into a 
+string, north/south/east/west, if 
+parameter is invalid returns nil.
+--]]
+function directionToString(dir)
+  if dir==0 then return "north"
+  elseif dir==1 then return "east"
+  elseif dir==2 then return "south"
+  elseif dir==3 then return "west"
+  end
+end
+
+
+--[[
+compares actual turtle inventory to
+myInventory, updates all quantities, 0s 
+type for newly-empty slots and attempts 
+to identify any new items, attaching 
+"unknown" tags to those that do not 
+match available items.
+
+return: changed, added, removed
+changed : boolean, true if anything 
+  changed.
+added/removed: arrays of tables for each
+  slot which gained or lost items. Each 
+  table has slot, type, and count, where
+  count is how many were added/removed.
+--]]
+function updateInventory()
+  --save selected slot to reselect when done
+  local changed=false
+  local prevSlot=selectedSlot
+  local addedStuff={}
+  local removedStuff={}
+  for i=1,16,1 do
+    local turtleCount=native.getItemCount(i)
+    local invCount=myInventory.slots[i].quantity
+    if invCount~=turtleCount then
+      --item count has changed...
+      changed=true
+      if invCount==0 then
+        --we had none before, have to compare to other types
+        select(i)
+        local found=false       
+        for j=1,16,1 do
+          if i~=j then
+            if myInventory.slots[j].type~=0 and compareTo(j) then
+              --got a match
+              myInventory.slots[i].type=myInventory.slots[j].type
+              found=true
+              break
+            end
+          end
+        end
+        if not found then
+          myInventory.slots[i].type=myInventory:getNextUnknownType()
+        end
+      elseif turtleCount==0 then
+        --add to dropped
+        removedStuff[#removedStuff+1]={
+          type=myInventory.slots[i].type,
+          count=myInventory.slots[i].quantity,
+          slot=i,
+        }
+        --we don't have anymore, zero type
+        myInventory.slots[i].type=0
+      end
+      --if we have more now...
+      if turtleCount>invCount then
+        --add to newstuff list
+        addedStuff[#addedStuff+1]= {
+          type=myInventory.slots[i].type, 
+          count=turtleCount-invCount,
+          slot=i,
+        }
+      end
+      --in ALL cases, update quantity
+      myInventory.slots[i].quantity=native.getItemCount(i)
+    end
+  end
+  if changed then
+    inventory.save(myInventory,".inventory")
+  end
+  select(prevSlot)
+  return changed, addedStuff, removedStuff
+end
+
+
+--[[
+internal, helper function for 
+directional move functions	
+--]]
+local function movehelp(moveFunc, unmoveFunc, digFunc, detectFunc, dirv, count, onFail, onStepCallback)
+  count=count or 1
+  for i=1,count,1 do
+    local nextPosition=position+dirv
+    saveAction("move "..nextPosition.x.." "..nextPosition.y.." "..nextPosition.z)
+    local moveRes=moveFunc()
+    if moveRes==false then
+      if onFail=="return" then
+        saveAction("")
+        local succ,dist
+        succ,dist=unmoveFunc(i-1,"stop")
+        return false, i-1-dist
+      elseif onFail=="dig" then
+        local res=false
+        local tries=0
+        repeat 
+          --retry..
+          if detectFunc() then
+            digFunc()
+          end
+          os.sleep(.2)          
+          res=moveFunc()
+          tries=tries+1
+        until res==true or tries>=10
+        if res==false then
+          saveAction("")
+          return false,i-1
+        end
+      else --default stop
+        saveAction("")
+        return false, i-1
+      end
+    end
+    if onStepCallback then onStepCallback() end
+    position=nextPosition
+    savePosition()
+  end
+  saveAction("")
+  return true, count
+end
+
+function forward(count, onFail, onStepCallback)
+  local res1,res2=movehelp(native.forward,back,dig,native.detect,dirVMap[direction], count, onFail, onStepCallback)
+  return res1,res2
+end
+
+function back(count, onFail, onStepCallback)
+  local res1,res2=movehelp(native.back,forward,digBack,detectBack,(dirVMap[(direction+2)%4]), count, onFail, onStepCallback)
+  return res1,res2
+end
+
+function up(count, onFail, onStepCallback)
+  local res1,res2=movehelp(native.up,down,digUp,native.detectUp,vector.new(0,1,0), count, onFail, onStepCallback)
+  return res1,res2 
+end
+
+function down(count, onFail, onStepCallback)
+  local res1,res2=movehelp(native.down,up,digDown,native.detectDown,vector.new(0,-1,0), count, onFail, onStepCallback)
+  return res1,res2 
+end
+
+function left(count, onFail, onStepCallback)
+  turnLeft()
+  local res,c=forward(count,onFail, onStepCallback)
+  turnRight()
+  return res,c
+end
+
+function right(count, onFail)
+  turnRight()
+  local res,c=forward(count,onFail, onStepCallback)
+  turnLeft()
+  return res,c
+end
+
+function turnLeft()  
+  direction=(direction+3)%4
+  saveAction("turn "..direction)
+  native.turnLeft()
+  savePosition()
+  saveAction("")
+end
+
+function turnRight()
+  direction=(direction+1)%4
+  saveAction("turn "..direction)
+  native.turnRight()
+  savePosition()
+  saveAction("")
+end
+
+function turnAround()
+  direction=(direction+1)%4
+  saveAction("turn "..direction)
+  native.turnLeft()
+  savePosition()
+  direction=(direction+1)%4
+  saveAction("turn "..direction)
+  native.turnLeft()
+  savePosition()
+  saveAction("")
+end
+
+
+function getPosition()
+   return position.x,position.y,position.z
+end
+
+function setPosition(x,y,z)
+  position=vector.new(x,y,z)
+end
+
+function getDirection()
+  return direction
+end
+
+function getDirectionV(dir)
+  if dir==nil or dir=="forward" then
+    return dirVMap[direction]
+  end
+  if dir=="back" then
+    return dirVMap[(direction+2)%4]
+  end
+  if dir=="left" then
+    return dirVMap[(direction+3)%4]
+  end
+  if dir=="right" then
+    return dirVMap[(direction+1)%4]
+  end
+  if dir=="up" then
+    return vector.new( 0, 1,0)
+  end
+  if dir=="down" then
+    return vector.new( 0, -1,0)    
+  end
+  return nil --invalid direction
+end
+
+function setDirection(dir)
+  local newdir=todirection(dir)
+  if newdir then
+    direction=newdir
+  end
+end
+
+function move(x, y, z, onBlocked)
+  local succ, dist, blocked, done
+  local prevDir=direction
+  local moves={}
+  local dig=false
+  while true do
+    blocked=true
+    done=true
+    if x>0 then
+      face("east")
+      succ,dist=forward(x,"stop")
+      x=x-dist
+      if dist>0 then
+        moves[#moves+1]={dir="east",dist=dist}
+        blocked=false
+      end        
+      done=done and succ
+    elseif x<0 then
+      face("west")
+      succ,dist=forward(-x,"stop")
+      x=x+dist
+      if dist>0 then
+        moves[#moves+1]={dir="west",dist=dist}        
+        blocked=false
+      end
+      done=done and succ
+    end
+    if y>0 then
+      succ,dist=up(y,"stop")
+      y=y-dist
+      if dist>0 then
+        moves[#moves+1]={dir="up",dist=dist}
+        blocked=false
+      end
+      done=done and succ
+    elseif y<0 then
+      succ,dist=down(-y,"stop")
+      y=y+dist
+      if dist>0 then
+        moves[#moves+1]={dir="down",dist=dist}
+        blocked=false
+      end
+      done=done and succ
+    end
+    if z>0 then
+      face("south")
+      succ,dist=forward(z,"stop")
+      z=z-dist
+      if dist>0 then
+        moves[#moves+1]={dir="south",dist=dist}
+        blocked=false
+      end
+      done=done and succ
+    elseif z<0 then
+      face("north")
+      succ,dist=forward(-z,"stop")
+      z=z+dist
+      if dist>0 then
+        moves[#moves+1]={dir="north",dist=dist}
+        blocked=false
+      end
+      done=done and succ
+    end
+    if done then
+      return true
+    end
+    if blocked then
+      if onBlocked=="return" then
+        for i=#moves,1,-1 do
+          if moves[i].dir=="north" then
+            face("south")
+            forward(moves[i].dist)
+          elseif moves[i].dir=="south" then
+            face("north")
+            forward(moves[i].dist)
+          elseif moves[i].dir=="east" then
+            face("west")
+            forward(moves[i].dist)
+          elseif moves[i].dir=="west" then
+            face("east")
+            forward(moves[i].dist)
+          elseif moves[i].dir=="up" then
+            down(moves[i].dist)
+          elseif moves[i].dir=="down" then
+            up(moves[i].dist)
+          end
+        end
+        face(prevDir)
+        return false
+      elseif onBlocked=="dig" then
+        succ=true
+        if x>0 then
+          face("east")
+          succ=succ and forward(x,"dig")
+        elseif x<0 then
+          face("west")
+          succ=succ and forward(x,"dig")
+        end
+        if z>0 then
+          face("north")
+          succ=succ and forward(z,"dig")
+        elseif x<0 then
+          face("south")
+          succ=succ and forward(z,"dig")
+        end
+        if y>0 then
+          succ=succ and up(y,"dig")
+        elseif y<0 then
+          succ=succ and down(y,"dig")
+        end
+        return succ
+      else
+        return false
+      end
+    end
+  end
+end
+
+function goto(x,y,z,onBlocked)
+  return move(x-position.x,y-position.y,z-position.z,onBlocked)
+end
+
+function face(newDirection)
+  if type(newDirection)=="string" then
+    newDirection=dirMap[newDirection]
+  end
+  turns=newDirection-direction
+  if turns>2 then turns=turns-4 end
+  if turns<-2 then turns=turns+4 end
+  if turns==-1 then
+    turnLeft()    
+  elseif turns==1 then
+    turnRight()
+  elseif turns~=0 then
+    turnAround()
+  end
+end
+
+
+function pushPos()
+  posStack[#posStack+1]={position,direction}
+  savePosStack()
+end
+
+function popPos()
+  if #posStack>0 then
+    local t=posStack[#posStack]
+    local pos=t[1]
+    local dir=t[2]
+    posStack[#posStack]=nil
+    savePosStack()
+    if go then
+      local res=goto(pos.x,pos.y,pos.z)
+      face(dir)
+      return res
+    else
+      return true
+    end
+  end
+  return nil
+end
+
+function topPos()
+  return posStack[#posStack]
+end
+
+function getPosStackSize()
+  return #posStack
+end
+
+function getPosStackItem(index)
+  if type(index)~="number" then 
+    error("turtlex:getPosStackItem: parameter must be a number!") 
+  end
+  if index<=0 or index>#posStack then
+    error("turtlex:getPosStackItem: index out of range!")
+  end
+  return posStack[index]
+end
+
+function clearStack()
+  posStack={}
+  savePosStack()
+end
+
+
+function select(index)
+  succ,err = pcall(native.select,index)
+  if succ then
+    selectedSlot=index
+    saveSelected()
+    return succ
+  else
+    return false, err
+  end
+end
+
+function getSelected()
+  return selectedSlot, myInventory.slots[selectedSlot].type
+end
+
+function getInventory()
+  return myInventory
+end
+
+function getItemType(slot)
+  local prevSlot=selectedSlot
+  if slot~=nil then
+    select(slot)
+  else
+    slot=selectedSlot
+  end
+  local res=myInventory.slots[selectedSlot].type
+  if slot~=prevSlot then
+    select(prevSlot)
+  end
+  return res
+end
+
+function setItemType(type, slot)
+  if slot==nil then
+    slot=selectedSlot
+  end
+  myInventory:setType(slot,type)
+end
+
+
+function getItemCount(ident)
+  if ident==nil then 
+    ident=selectedSlot 
+  elseif type(ident)~="number" then
+    if tonumber(ident) then
+      ident=tonumber(ident)
+    else
+      --slot is not a number, must be a type!
+      local total=0
+      for slot in typeSlots(ident) do
+        total=total+native.getItemCount(slot)
+      end
+      return total      
+    end
+  end
+  --if it gets here, it was a slot#
+  return native.getItemCount(ident)
+end
+
+function getItemSpace(slot)
+  if slot==nil then slot=selectedSlot end
+  return native.getItemSpace(slot)
+end
+
+function findItemType(type, after)
+  return myInventory:findSlot(type,after)
+end
+
+function iterTypeSlots(type,after)
+  local v=findItemType(type,after)
+  if v~=0 then 
+    return v
+  end
+end
+
+function typeSlots(t,i)
+  return iterTypeSlots, t, 0
+end
+
+function displayInv()
+  myInventory:display()
+end
+
+local function digHelp(slot,digFunc)
+  local prev=selectedSlot
+  local items={}
+  if slot~=nil then
+    select(slot)
+  else
+    slot=prev
+  end
+  
+  local res=digFunc()
+  if res then
+    --successfully dug, attempt to identify
+    local suc,add,sub=updateInventory()
+    if suc then 
+      items=add 
+    end
+  end
+ 
+  --reselect previous slot
+  if slot~=prev then
+    select(prev)
+  end
+  
+  return res, items
+end
+
+function dig(slot)
+  return digHelp(slot,native.dig)
+end
+
+function digUp(slot)
+  return digHelp(slot,native.digUp)  
+end
+
+function digDown(slot)
+  return digHelp(slot,native.digDown)
+end
+
+function digBack(slot)
+  turnAround()
+  res=dig(slot)
+  turnAround()
+  return res
+end
+
+function digLeft(slot)
+  turnLeft()
+  res=dig(slot)
+  turnRight()
+  return res
+end
+
+function digRight(slot)
+  turnRight()
+  res=dig(slot)
+  turnLeft()
+  return res
+end
+
+
+local function indexHelper(index)
+  local slot=selectedSlot
+  if index~=nil then
+    if type(index)=="string" then
+      slot=findItemType(index)
+      if slot==0 then
+        return nil,"turtlex:compare: no reference sample for type '"..index.."' in inventory!"
+      end
+    elseif type(index)=="number" then
+      slot=index
+    else
+      return nil, "turtlex:compare: invalid parameter, expected number or string, got "..type(index)
+    end
+  end
+  return slot
+end
+
+local function placeHelp(index,placeFunc, extra)
+  local placeParam=extra
+  local slot,err=indexHelper(index)  
+  if not slot then
+    placeParam=index
+    slot,err=indexHelper(extra)
+    if not slot then
+      return nil, err
+    end
+  end
+  
+  local prev=selectedSlot
+  if slot~=prev then
+    select(slot)
+  end
+  
+  res=placeFunc(placeParam)
+  if res then
+    --successfully placed
+    updateInventory()
+  end
+  
+  --restore selected slot
+  if slot~=prev then
+    select(prev)
+  end
+  return res
+
+end
+
+function place(index,extra)
+  return placeHelp(index,native.place,extra)
+end
+
+function placeUp(index,extra)
+  return placeHelp(index,native.placeUp)
+end
+
+function placeDown(index,extra)
+  return placeHelp(index,native.placeDown,extra)
+end
+
+function placeBack(slot,extra)
+  turnAround()
+  res=place(slot,native.place,extra)
+  turnAround()
+  return res
+end
+
+function placeLeft(slot,extra)
+  turnLeft()
+  res=place(slot,native.place,extra)
+  turnRight()
+  return res
+end
+
+function placeRight(slot,extra)
+  turnRight()
+  res=place(slot,native.place,extra)
+  turnLeft()
+  return res
+end
+
+
+
+local function compareHelp(index,compareFunc)
+  local prevSlot=selectedSlot
+  local slot, err=indexHelper(index)
+  if slot==nil then
+    return slot, err
+  end
+  if prevSlot~=slot then
+    select(slot)  
+  end 
+  local res=compareFunc()
+  if slot~=prevSlot then
+    select(prevSlot)
+  end
+  return res
+end
+
+function compare(index)
+  return compareHelp(index,native.compare)
+end
+
+function compareUp(index)
+  return compareHelp(index,native.compareUp)
+end
+
+function compareDown(index)
+  return compareHelp(index,native.compareDown)
+end
+
+function compareLeft(index)
+  turtle.turnLeft()
+  local res,err=compare(index)
+  turtle.turnRight()
+  return res, err
+end
+
+function compareRight(index)
+  turtle.turnRight()
+  local res,err=compare(index)
+  turtle.turnLeft()
+  return res
+end
+
+function compareBack(index)
+  turtle.turnAround()
+  local res,err=compare(index)
+  turtle.turnAround()
+  return res, err
+end
+
+function compareAll(index)
+  local prevSlot=selectedSlot
+  local slot, err=indexHelper(index)
+  if slot==nil then
+    return slot, err
+  end
+  if prevSlot~=slot then
+    select(slot)  
+  end
+  dirs={"forward","right","back","left"}
+  matches={}
+  if native.compareUp() then
+    matches[#matches+1]="up"
+  end
+  if native.compareDown() then
+    matches[#matches+1]="down"
+  end
+  for i=1,4,1 do   
+    if native.compare() then
+      matches[#matches+1]=dirs[i]
+    end
+    turtle.turnRight()
+  end
+    
+  if prevSlot~=slot then
+    select(prevSlot)
+  end
+  return #matches, matches
+end
+
+
+function compareTo(slotNum, index)
+  local prevSlot=selectedSlot
+  local slot,err=indexHelper(index)
+
+  if slot==nil then
+    return slot,err
+  end
+
+  if prevSlot~=slot then
+    select(slot)  
+  end
+  res=native.compareTo(slotNum)
+  if prevSlot~=slot then
+    select(prevSlot)
+  end  
+
+  return res
+end
+
+
+detect=native.detect
+detectUp=detectUp
+detectDown=detectDown
+
+function detectLeft()
+  turnLeft()
+  local res=detect()
+  turnRight()
+  return res
+end
+
+
+function detectRight()
+  turnRight()
+  local res=detect()
+  turnLeft()
+  return res
+end
+
+function detectBack()
+  turnAround()
+  local res=detect()
+  turnAround()
+  return res
+end
+
+
+local function dropHelp(quantity, index, dropFunc)
+  quantity=quantity or 64
+  if quantity==0 then
+    return true
+  end
+  local prevSlot=selectedSlot
+  local slot,err=indexHelper(index)
+  if slot==nil then
+    return false, err
+  end
+  if slot~=prevSlot then
+    select(slot)
+  end
+  local prevCount=native.getItemCount(slot)
+  local res=false
+  if type(index)=="number" then
+    res=dropFunc(quantity)
+  else
+    local dropped=0
+    for slot in typeSlots(index) do
+      res=true
+      turtlex.select(slot)
+      if native.getItemCount(slot)+dropped<quantity then
+        dropped=dropped+native.getItemCount(slot)
+        dropFunc(quantity)  
+      else
+        dropFunc(quantity-dropped)
+        break
+      end
+    end
+  end
+  if res then
+    updateInventory()
+  end
+  if selectedSlot~=prevSlot then
+    select(prevSlot)
+  end
+  
+  return res, quantity>=prevCount and prevCount or quantity
+end
+
+function drop(quantity, index)
+  return dropHelp(quantity,index,native.drop)
+end
+
+function dropUp(quantity, index)
+  return dropHelp(quantity,index,native.dropUp)
+end
+
+function dropDown(quantity, index)
+  return dropHelp(quantity,index,native.dropDown)
+end
+
+function dropLeft(quantity,index)
+  turnLeft()
+  local res=dropHelp(quantity,index,native.drop)
+  turnRight()
+  return res
+end
+
+function dropRight(quantity,index)
+  turnRight()
+  local res=dropHelp(quantity,index,native.drop)
+  turnLeft()
+  return res
+end
+
+function dropBack(quantity,index)
+  turnAround()
+  local res=dropHelp(quantity,index,native.drop)
+  turnAround()
+  return res
+end
+
+
+local function suckHelp(slot,suckFunc)
+  local prevSlot=selectedSlot
+  if slot==nil then
+    slot=selectedSlot
+  end
+  if slot~=prevSlot then
+    select(slot)
+  end
+  local res=suckFunc()
+  
+  local succ, add={}, rem;
+  if res then
+    succ,add,rem=updateInventory()
+  end
+
+  if slot~=prevSlot then
+    select(prevSlot)
+  end
+  return res, add
+end
+
+function suck(slot)
+  return suckHelp(slot,native.suck)
+end
+
+function suckUp(slot)
+  return suckHelp(slot,native.suckUp)
+end
+
+function suckDown(slot)
+  return suckHelp(slot,native.suckDown)
+end
+
+function suckLeft(slot)
+  turnLeft()
+  local res, qty=suckHelp(slot,native.suck)
+  turnRight()
+  return res,qty
+end
+
+function suckRight(slot)
+  turnRight()
+  local res, qty=suckHelp(slot,native.suck)
+  turnLeft()
+  return res,qty
+end
+
+function suckBack(slot)
+  turnAround()
+  local res, qty=suckHelp(slot,native.suck)
+  turnAround()
+  return res,qty
+end
+
+
+getFuelLevel=native.getFuelLevel
+
+
+function refuel(quantity, index)
+  quantity=quantity or 64
+  local prevSlot=selectedSlot
+  local slot,err=indexHelper(index)
+  local res
+  if slot==nil then
+    return false, err
+  end
+  if prevSlot~=slot then
+    select(slot)
+  end
+  res=native.refuel(quantity)
+  if res==true then
+    updateInventory()
+  end
+  if prevSlot~=slot then
+    select(prevSlot)
+  end
+  return res
+end
+
+function craft(quantity, slot, outputType)
+  if turtle.craft==nil then
+    return false, "turtlex:craft: Only crafting turtles can craft!"
+  end
+  
+  local res
+  prevSlot=selectedSlot
+  if slot==nil then
+    slot=selectedSlot
+  elseif slot~=prevSlot then
+    select(slot)
+  end
+  if quantity==nil then
+    res=native.craft()
+  else
+    res=native.craft(quantity)
+  end
+  if slot~=prevSlot then
+    select(prevSlot)
+  end  
+  if res==true then
+    local wasChange, addedStuff, removedStuff = updateInventory()
+    if wasChange==false then
+      return res, "inconsistent results from updateInventory - craft reports success, but no change or no added items reported?"
+    end
+    --did they give us an expected output type?
+    if outputType~=nil and outputType~="" and outputType~=0 and outputType~="unknown" then
+      local addedType
+      if #addedStuff>0 then
+        addedType=addedStuff[1].type
+      else
+        addedType=myInventory.getItemType(slot)
+      end
+      for i=2,#addedStuff,1 do
+        if addedStuff[i].type~=addedType then
+          return res, "inconsistent results from updateInventory - multiple new item types detected!"
+        end
+      end
+      setItemType(outputType,addedStuff[1].slot)
+    end
+  end
+  return res
+end
+
+
+function attackHelp(attackFunc,untilFalse)
+  local res=attackFunc()
+  while res and untilFalse do
+    sleep(.4)
+    res=attackFunc()
+  end
+  local add
+  if res then
+    _,add,_=updateInventory()
+  end
+  return res,add
+end
+
+function attack(untilFalse)
+  return attackHelp(native.attack,untilFalse)
+end
+
+function attackUp(untilFalse)
+  return attackHelp(native.attackUp,untilFalse)
+end
+
+function attackDown(untilFalse)
+  return attackHelp(native.attackDown,untilFalse)
+end
+
+function attackLeft(untilFalse)
+  turtlex.turnLeft()
+  res={attackHelp(native.attack,untilFalse)}
+  turtlex.turnRight()
+  return unpack(res)
+end
+
+function attackRight(untilFalse)
+  turtlex.turnRight()
+  res={attackHelp(native.attack,untilFalse)}
+  turtlex.turnLeft()
+  return unpack(res)
+end
+
+function attackBack(untilFalse)
+  turtlex.turnAround()
+  res={attackHelp(native.attack,untilFalse)}
+  turtlex.turnAround()
+  return unpack(res)
+end
+
+--[[=== api initialization code ===]]--
+loadState()  
+--try to update position from gps, if I even have a modem
+if peripheral.getType("right")=="modem" then
+  rednet.open("right")
+  gpsUpdate()
+end

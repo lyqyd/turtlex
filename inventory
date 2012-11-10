@@ -1,0 +1,248 @@
+--[[== turtlex api ====================
+high-level alternative to turtle api,
+adds position and inventory tracking
+with persistance through unloading or
+reboot.
+
+code by GopherAtl
+Do whatever you want with it, unless
+you want to take credit for my work,
+in which case, screw you, dick.
+
+If you redistribute, please link back 
+to the turtlex thread on the 
+computercraft forums!
+=====================================]]
+
+
+
+--STUB needs to be implemented properly
+function getStackSize(type)
+  return 64
+end
+
+
+local function dropIn(inv,type,quantity)
+  somePlaced=false
+  for i=1,inv.numSlots,1 do
+    if inv.slots[i].type==type then
+      --how many can fit?
+      if quantity+inv.slots[i].quantity <=64 then
+        inv.slots[i].quantity=inv.slots[i].quantity+quantity
+        somePlaced=true
+        quantity=0
+        break
+      else
+        quantity=quantity-(64-inv.slots[i].quantity)
+        inv.slots[i].quantity=64
+        somePlaced=true
+      end
+    elseif inv.slots[i].type==0 then
+      inv.slots[i].type=type
+      inv.slots[i].quantity=quantity
+      	quantity=0
+      somePlaced=true
+      break
+    end
+  end
+
+  if inv.autoSave then
+    save(inv)
+  end
+  return somePlaced, quantity
+end
+
+
+local function suckOut(inv)
+  qtyTaken=0
+  type=0
+  for i=1,inv.numSlots,1 do
+    if inv.slots[i].quantity~=0 then
+      qtyTaken=inv.slots[i].quantity
+      type=inv.slots[i].type
+      inv.slots[i].type=0
+      inv.slots[i].quantity=0
+      if inv.autoSave then
+        save(inv)
+      end
+      return type, qtyTaken
+    end
+  end
+  return 0, 0
+end
+
+
+local function getQuantity(inv,type)
+  count=0
+  for n,slot in pairs(inv.slots) do
+    if slot.type==type then
+      count=count+slot.quantity
+    end
+  end
+  return count
+end
+
+local function findSlot(inv,type,after)
+  next=after and after+1 or 1
+  for i=next,inv.numSlots,1 do
+    if inv.slots[next].type==type then
+      return next
+    end
+    next=next+1
+  end
+  return 0
+end
+
+function getNextUnknownType(inv)
+  local i=1
+  local type="unknown"
+  while true do
+    if inv:findSlot(type)==0 then
+      return type
+    end
+    i=i+1
+    type="unknown"..i
+  end  
+end 
+
+
+function save(inv,filename)
+  if filename==nil or filename=="" then
+    filename=inv.fileName
+  end
+  if filename==nil or filename=="" then
+    filename=".inventory"
+    count=1
+    while fs.exists(filename) do
+      count=count+1
+      filename=".inventory"..count
+    end
+  end
+  
+  inv.fileName=filename
+  
+  local file=fs.open(filename,"w")
+  file.write("inv\n")
+  file.write(inv.numSlots.."\n")
+  for i=1,inv.numSlots,1 do
+    file.write(inv.slots[i].quantity.." "..inv.slots[i].type.."\n")
+  end
+  file.close()
+end
+
+
+function load(filename)
+  local inv=nil
+  if not fs.exists(filename) then
+    return nil
+  end
+  local file=fs.open(filename,"r")
+  local header=file.readLine()
+  if header=="inv" then
+    local size=file.readLine()+0
+    inv=inventory.create(inv,false)
+    inv.fileName=filename
+    for i=1,size,1 do
+      local line=file.readLine()
+      local spacePos=string.find(line," ")
+      inv.slots[i].quantity=string.sub(line,1,spacePos-1)+0
+      inv.slots[i].type=string.sub(line,spacePos+1)
+    end   
+  end
+  
+  return inv
+    
+end
+
+
+local function display(inv)
+   str=""
+   for i=1,inv.numSlots,1 do
+     str=str..i.." - "..inv.slots[i].type.." x"..inv.slots[i].quantity.."\t"
+   end
+   print(str)
+end
+
+local function setType(inv, slot, type)
+  prevType=inv.slots[slot].type
+  inv.slots[slot].type=type
+  
+  --if prevtype was specified at all, get others identified as same
+  if prevType~=0 then
+    for i=1,inv.numSlots,1 do
+      if inv.slots[i].type==prevType then
+        inv.slots[i].type=type
+      end
+    end
+  end
+
+  if inv.autoSave then
+    save(inv)
+  end
+end
+
+inventoryTemplate= {
+  dropIn=dropIn,
+  suckOut=suckOut,
+  getQuantity=getQuantity,
+  display=display,
+  findSlot=findSlot,
+  setType=setType,
+  getNextUnknownType=getNextUnknownType,
+
+  autoSave=false,
+  fileName=""
+}
+
+
+local function initializeTurtleInventory(inv)
+  --everything will be unknown..
+  unknownCount=0
+  
+  for i=1,inv.numSlots,1 do
+    q=turtle.getItemCount(i)
+    if q>0 then
+      --compare to previous
+      turtle.select(i)
+      inv.slots[i].quantity=q
+      for j=1,i-1,1 do
+        if turtle.compareTo(j) then
+          inv.slots[i].type=inv.slots[j].type
+          break
+        end
+      end
+      if inv.slots[i].type==0 then
+        unknownCount=unknownCount+1
+        inv.slots[i].type="unknown"..unknownCount
+      end
+    end
+  end
+end
+
+
+function create(numSlots, isMe)
+  newInv={}
+  if numSlots==nil then
+    numSlots=16 --assume minimum, for safety
+  end
+  
+  newInv.numSlots=numSlots
+  newInv.slots={}
+  newInv.isMe=isMe and true or false
+    
+  for i=1,numSlots,1 do
+    newInv.slots[i]={}
+    newInv.slots[i].quantity=0
+    newInv.slots[i].type=0
+  end
+  
+  setmetatable(newInv,{__index=inventoryTemplate})
+  --if it's an isMe, initialize automatically
+  if isMe then
+    initializeTurtleInventory(newInv)
+  end
+  
+  return newInv
+   
+end
+
