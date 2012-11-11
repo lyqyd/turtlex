@@ -376,20 +376,22 @@ local function movehelp(moveFunc, unmoveFunc, digFunc, detectFunc, dirv, count, 
     saveAction("move "..nextPosition.x.." "..nextPosition.y.." "..nextPosition.z)
     local moveRes=moveFunc()
     if moveRes==false then
+	  saveAction("")
       if onFail=="return" then
-        saveAction("")
         local succ,dist
         succ,dist=unmoveFunc(i-1,"stop")
         return false, i-1-dist
       elseif onFail=="dig" then
         local res=false
         local tries=0
-        repeat 
+        repeat
           --retry..
+          saveAction("")
           if detectFunc() then
             digFunc()
           end
-          os.sleep(.2)          
+          os.sleep(.2)  
+          saveAction("move "..nextPosition.x.." "..nextPosition.y.." "..nextPosition.z)        
           res=moveFunc()
           tries=tries+1
         until res==true or tries>=10
@@ -398,7 +400,6 @@ local function movehelp(moveFunc, unmoveFunc, digFunc, detectFunc, dirv, count, 
           return false,i-1
         end
       else --default stop
-        saveAction("")
         return false, i-1
       end
     end
