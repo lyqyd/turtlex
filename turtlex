@@ -478,6 +478,10 @@ function getPosition()
    return position.x,position.y,position.z
 end
 
+function getChunk()
+  return math.floor(position.x/16), math.floor(position.z/16)
+end
+
 function setPosition(x,y,z)
   position=vector.new(x,y,z)
 end
