@@ -478,8 +478,14 @@ function getPosition()
    return position.x,position.y,position.z
 end
 
+--gets the chunk coordinates
 function getChunk()
   return math.floor(position.x/16), math.floor(position.z/16)
+end
+
+--gets position within chunk (range 0-15)
+function getChunkPosition()
+  return position.x%16, position.z%16
 end
 
 function setPosition(x,y,z)
