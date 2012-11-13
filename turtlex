@@ -1105,12 +1105,12 @@ local function dropHelp(quantity, index, dropFunc)
     res=dropFunc(quantity)
   else
     local dropped=0
-    for slot in typeSlotsReverse(index) do
+    for slot in typeSlotsRev(index) do
       res=true
       turtlex.select(slot)
       if native.getItemCount(slot)+dropped<quantity then
         dropped=dropped+native.getItemCount(slot)
-        dropFunc(quantity)  
+        dropFunc(math.min(quantity,64))  
       else
         dropFunc(quantity-dropped)
         break
