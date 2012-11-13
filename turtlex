@@ -624,10 +624,10 @@ function move(x, y, z, onBlocked)
           succ=succ and forward(x,"dig")
         end
         if z>0 then
-          face("north")
+          face("south")
           succ=succ and forward(z,"dig")
         elseif x<0 then
-          face("south")
+          face("north")
           succ=succ and forward(z,"dig")
         end
         if y>0 then
