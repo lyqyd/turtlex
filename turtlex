@@ -780,20 +780,42 @@ function findItemType(type, after)
   return myInventory:findSlot(type,after)
 end
 
-function iterTypeSlots(type,after)
+local function iterTypeSlots(type,after)
   local v=findItemType(type,after)
   if v~=0 then 
     return v
   end
 end
 
-function typeSlots(t,i)
+function typeSlots(t)
   return iterTypeSlots, t, 0
+end
+
+function findLastItemType(type, before)
+  for i=before-1,1,-1 do
+    if myInventory.slots[i].type==type then
+      return i
+    end
+  end
+  return 0
+end
+
+local function iterTypeSlotsRev(type,before)
+  local v=findLastItemType(type,before)
+  if v~=0 then 
+    return v
+  end
+end
+
+
+function typeSlotsRev(t)
+  return iterTypeSlotsRev, t, 17
 end
 
 function displayInv()
   myInventory:display()
 end
+
 
 local function digHelp(slot,digFunc)
   local prev=selectedSlot
@@ -1083,7 +1105,7 @@ local function dropHelp(quantity, index, dropFunc)
     res=dropFunc(quantity)
   else
     local dropped=0
-    for slot in typeSlots(index) do
+    for slot in typeSlotsReverse(index) do
       res=true
       turtlex.select(slot)
       if native.getItemCount(slot)+dropped<quantity then
