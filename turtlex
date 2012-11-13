@@ -618,22 +618,22 @@ function move(x, y, z, onBlocked)
         succ=true
         if x>0 then
           face("east")
-          succ=succ and forward(x,"dig")
-        elseif x<0 then
+          succ=forward(x,"dig") and succ
+        elseif x<0 then          
           face("west")
-          succ=succ and forward(x,"dig")
+          succ=forward(-x,"dig") and succ
         end
         if z>0 then
           face("south")
-          succ=succ and forward(z,"dig")
-        elseif x<0 then
+          succ=forward(z,"dig") and succ
+        elseif z<0 then
           face("north")
-          succ=succ and forward(z,"dig")
+          succ=forward(-z,"dig") and succ
         end
         if y>0 then
-          succ=succ and up(y,"dig")
+          succ=up(y,"dig") and succ
         elseif y<0 then
-          succ=succ and down(y,"dig")
+          succ=down(-y,"dig") and succ
         end
         return succ
       else
