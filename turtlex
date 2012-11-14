@@ -1222,21 +1222,33 @@ getFuelLevel=native.getFuelLevel
 function refuel(quantity, index)
   quantity=quantity or 64
   local prevSlot=selectedSlot
-  local slot,err=indexHelper(index)
   local res
-  if slot==nil then
-    return false, err
+  if type(index)=="string" then    
+    for slot in typeSlotsRev(index) do
+      if quantity<turtlex.getItemCount(slot) then
+        select(slot)
+        native.refuel(quantity)
+        break
+      else
+        quantity=quantity-turtlex.getItemCount(slot)
+        select(slot)
+        native.refuel()
+      end
+    end
+  else 
+    local slot,err=indexHelper(index)
+    if slot==nil then
+      return false, err
+    end
+    if prevSlot~=slot then
+      select(slot)
+    end
+      res=native.refuel(quantity)
+    if res==true then
+      updateInventory()
+    end
   end
-  if prevSlot~=slot then
-    select(slot)
-  end
-  res=native.refuel(quantity)
-  if res==true then
-    updateInventory()
-  end
-  if prevSlot~=slot then
-    select(prevSlot)
-  end
+  select(prevSlot)
   return res
 end
 
