@@ -367,7 +367,7 @@ end
 
 --[[
 internal, helper function for 
-directional move functions	
+directional move functions  
 --]]
 local function movehelp(moveFunc, unmoveFunc, digFunc, detectFunc, dirv, count, onFail, onStepCallback)
   count=count or 1
@@ -376,7 +376,7 @@ local function movehelp(moveFunc, unmoveFunc, digFunc, detectFunc, dirv, count, 
     saveAction("move "..nextPosition.x.." "..nextPosition.y.." "..nextPosition.z)
     local moveRes=moveFunc()
     if moveRes==false then
-	  saveAction("")
+    saveAction("")
       if onFail=="return" then
         local succ,dist
         succ,dist=unmoveFunc(i-1,"stop")
@@ -589,7 +589,7 @@ function move(x, y, z, onBlocked)
       done=done and succ
     end
     if done then
-      return true
+      return true, moves
     end
     if blocked then
       if onBlocked=="return" then
@@ -619,23 +619,29 @@ function move(x, y, z, onBlocked)
         if x>0 then
           face("east")
           succ=forward(x,"dig") and succ
+          moves[#moves+1]={dir="east",dist=x}
         elseif x<0 then          
           face("west")
           succ=forward(-x,"dig") and succ
+          moves[#moves+1]={dir="west",dist=-x}
         end
         if z>0 then
           face("south")
           succ=forward(z,"dig") and succ
+          moves[#moves+1]={dir="south",dist=z}
         elseif z<0 then
           face("north")
           succ=forward(-z,"dig") and succ
+          moves[#moves+1]={dir="north",dist=-z}
         end
         if y>0 then
           succ=up(y,"dig") and succ
+          moves[#moves+1]={dir="up",dist=y}
         elseif y<0 then
           succ=down(-y,"dig") and succ
+          moves[#moves+1]={dir="down",dist=-y}
         end
-        return succ
+        return succ, moves
       else
         return false
       end
@@ -1092,7 +1098,7 @@ local function dropHelp(quantity, index, dropFunc)
     return true
   end
   local prevSlot=selectedSlot
-  local slot,err=indexHelper(index)
+  local slot,err=indexHelper(index)  
   if slot==nil then
     return false, err
   end
@@ -1101,7 +1107,7 @@ local function dropHelp(quantity, index, dropFunc)
   end
   local prevCount=native.getItemCount(slot)
   local res=false
-  if type(index)=="number" then
+  if not index or type(index)=="number" then
     res=dropFunc(quantity)
   else
     local dropped=0
