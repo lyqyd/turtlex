@@ -156,13 +156,6 @@ local location = {
 }
 
 --[[   internal variables ]]--
-local dirMap={south=0, west=1, north=2, east=3}
-local dirVMap={}
-dirVMap[0]=   vector.new( 0, 0, 1)
-dirVMap[1]=   vector.new(-1, 0, 0)
-dirVMap[2]=   vector.new( 0, 0,-1)
-dirVMap[3]=   vector.new( 1, 0, 0)
-
 local position=location.new(0,0,0,2)
 local positionTrack = location.new(0,0,0,2)
 local selectedSlot = 1
@@ -562,28 +555,6 @@ end
 
 function getDirection()
 	return position.h
-end
-
-function getDirectionV(dir)
-	if dir==nil or dir=="forward" then
-		return dirVMap[position.h]
-	end
-	if dir=="back" then
-		return dirVMap[(position.h+2)%4]
-	end
-	if dir=="left" then
-		return dirVMap[(position.h+3)%4]
-	end
-	if dir=="right" then
-		return dirVMap[(position.h+1)%4]
-	end
-	if dir=="up" then
-		return vector.new( 0, 1,0)
-	end
-	if dir=="down" then
-		return vector.new( 0, -1,0)    
-	end
-	return nil --invalid direction
 end
 
 function setDirection(dir)
