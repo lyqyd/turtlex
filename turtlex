@@ -786,6 +786,14 @@ function findItemType(type, after)
   return myInventory:findSlot(type,after)
 end
 
+function transferTo(slot,qty)
+  local res=native.transferTo(slot,qty)
+  if res then
+    updateInventory()
+  end
+  return res
+end
+
 local function iterTypeSlots(type,after)
   local v=findItemType(type,after)
   if v~=0 then 
