@@ -1,3 +1,4 @@
+--DEPENDS REQ:inventory
 --[[== turtlex api ====================
 high-level alternative to turtle api,
 adds position and inventory tracking
